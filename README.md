@@ -6,6 +6,9 @@
 
 **A bare-metal emulator for the Sonix SNC73410, compatible with Tamagotchi Paradise firmware.**
 
+> **This is a fork.** It adds full-speed emulation, a threaded interface,
+> and three settings — see [README-fork.md](README-fork.md).
+
 https://infinition.github.io/capybara/
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
