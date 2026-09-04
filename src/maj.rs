@@ -17,7 +17,7 @@ pub const DEPOT: &str = "https://github.com/infinition/capybara";
 pub const SOUTIEN: &str = "https://buymeacoffee.com/infinition";
 /// Derniere publication, au format que rend l'interface du depot.
 const DERNIERE_PUBLICATION: &str =
-    "https://api.github.com/repos/infinition/capybara/releases/latest";
+    "https://api.github.com/repos/knuckleslee/capybara/releases/latest";
 /// Au dela, on renonce plutot que de laisser le fil pendre.
 const DELAI: Duration = Duration::from_secs(10);
 
