@@ -6,13 +6,12 @@
 
 **A bare-metal emulator for the Sonix SNC73410, compatible with Tamagotchi Paradise firmware.**
 
-> **This is a fork.** It adds full-speed emulation, a threaded interface,
-> and three settings — see [README-fork.md](README-fork.md).
-
-https://infinition.github.io/capybara/
+> **This is a fork** of [infinition/capybara](https://github.com/infinition/capybara).
+> It adds full-speed emulation, a threaded interface, corrected scene names and
+> three settings — see [README-fork.md](README-fork.md).
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/infinition/capybara?include_prereleases)](https://github.com/infinition/capybara/releases)
+[![Release](https://img.shields.io/github/v/release/knuckleslee/capybara?include_prereleases)](https://github.com/knuckleslee/capybara/releases)
 
 [English](#english) | [Français](#francais)
 
@@ -79,7 +78,7 @@ Without a dump, the application opens and asks for one.
 ### Getting started
 
 1. Download an executable from
-   [Releases](https://github.com/infinition/capybara/releases), or build one.
+   [Releases](https://github.com/knuckleslee/capybara/releases), or build one.
 2. Open Capybara and load your dump. It is copied into the data folder, so it
    stays available even if you move the original.
 3. Wait for the gauge if your dump is encrypted. Nothing to do: the search
@@ -260,7 +259,8 @@ derivation, and the sixteen ARMv7-M decoding faults found by running real code.
 
 ### Support
 
-If this work is useful to you:
+Capybara is the work of [infinition](https://github.com/infinition/capybara);
+this fork only adds to it. If it is useful to you, support its author:
 
 <a href="https://www.buymeacoffee.com/infinition"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-infinition-yellow" alt="Buy me a coffee"></a>
 
@@ -338,7 +338,7 @@ Sans dump, l'application s'ouvre et vous en demande un.
 ### Premiers pas
 
 1. Prenez un executable dans les
-   [releases](https://github.com/infinition/capybara/releases), ou compilez le.
+   [releases](https://github.com/knuckleslee/capybara/releases), ou compilez le.
 2. Ouvrez Capybara et chargez votre dump. Il est recopie dans le dossier de
    donnees : il reste trouvable meme si vous deplacez l'original.
 3. Laissez la jauge finir si votre dump est chiffre. Rien a faire : la
@@ -527,7 +527,8 @@ faisant tourner du vrai code.
 
 ### Soutenir
 
-Si ce travail vous est utile :
+Capybara est l'oeuvre d'[infinition](https://github.com/infinition/capybara) ;
+ce fork ne fait qu'y ajouter. Si ce travail vous est utile, soutenez son auteur :
 
 <a href="https://www.buymeacoffee.com/infinition"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-infinition-yellow" alt="Buy me a coffee"></a>
 

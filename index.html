@@ -164,7 +164,7 @@ footer p{max-width:78ch;margin:0 0 12px}
     <a href="#telecharger" data-t="nav.get">Download</a>
     <a href="#quoi" data-t="nav.what">What it is</a>
     <a href="#etat" data-t="nav.state">Status</a>
-    <a href="https://github.com/infinition/capybara">GitHub</a>
+    <a href="https://github.com/knuckleslee/capybara">GitHub</a>
   </nav>
   <div class="lang" role="group" aria-label="Langue">
     <button type="button" data-lang="en" aria-pressed="true">EN</button>
@@ -215,7 +215,7 @@ footer p{max-width:78ch;margin:0 0 12px}
   </div>
 
   <div class="panel on" data-panel="win">
-    <a class="get" href="https://github.com/infinition/capybara/releases/latest" data-asset="windows-x64.zip">
+    <a class="get" href="https://github.com/knuckleslee/capybara/releases/latest" data-asset="windows-x64.zip">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 12l5 5 5-5M4 20h16"/></svg>
       <span><span data-t="get.win">Download for Windows</span><span class="file" data-file>capybara · zip · 64 bits</span></span>
     </a>
@@ -227,7 +227,7 @@ footer p{max-width:78ch;margin:0 0 12px}
   </div>
 
   <div class="panel" data-panel="mac">
-    <a class="get" href="https://github.com/infinition/capybara/releases/latest" data-asset="macos-apple-silicon.zip">
+    <a class="get" href="https://github.com/knuckleslee/capybara/releases/latest" data-asset="macos-apple-silicon.zip">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 12l5 5 5-5M4 20h16"/></svg>
       <span><span data-t="get.mac_arm">Download for macOS</span><span class="file" data-file>capybara · zip · arm64</span></span>
     </a>
@@ -242,11 +242,11 @@ footer p{max-width:78ch;margin:0 0 12px}
   </div>
 
   <div class="panel" data-panel="linux">
-    <a class="get" href="https://github.com/infinition/capybara/releases/latest" data-asset="linux-x64.AppImage">
+    <a class="get" href="https://github.com/knuckleslee/capybara/releases/latest" data-asset="linux-x64.AppImage">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 12l5 5 5-5M4 20h16"/></svg>
       <span><span data-t="get.appimage">Download the AppImage</span><span class="file" data-file>capybara · AppImage · x86_64</span></span>
     </a>
-    <a class="get" href="https://github.com/infinition/capybara/releases/latest" data-asset="linux-x64.deb">
+    <a class="get" href="https://github.com/knuckleslee/capybara/releases/latest" data-asset="linux-x64.deb">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 12l5 5 5-5M4 20h16"/></svg>
       <span><span data-t="get.deb">Download the Debian package</span><span class="file" data-file>capybara · deb · amd64</span></span>
     </a>
@@ -324,14 +324,17 @@ footer p{max-width:78ch;margin:0 0 12px}
 <section id="source">
   <div class="sec-head"><span class="sec-code">SRC</span><h2 data-t="src.h2">Build it yourself</h2></div>
   <p class="sec-intro" data-t="src.intro">Nothing obliges you to trust a binary. The code is open and building takes one line.</p>
-  <div class="cmd"><code>git clone https://github.com/infinition/capybara &amp;&amp; cd capybara &amp;&amp; cargo build --release</code></div>
+  <div class="cmd"><code>git clone https://github.com/knuckleslee/capybara &amp;&amp; cd capybara &amp;&amp; cargo build --release</code></div>
   <p class="panel-note" data-t="src.note">The binary lands in <code>target/release/capybara</code>. The reverse engineering probes live in <code>examples/</code> and stay in the repository, because the work continues.</p>
 </section>
 
 <footer>
   <p data-t="legal.1">Capybara is an independent work of reverse engineering for interoperability. It is not affiliated with, endorsed by, or connected to Bandai. Tamagotchi and Tamagotchi Paradise are trademarks of Bandai. No firmware, no ROM, no key and no graphic or sound asset from the console is contained in this repository or in the published executables.</p>
   <p data-t="legal.2">Distributed under the GNU General Public License v3.0.</p>
-  <p><a href="https://github.com/infinition/capybara">GitHub</a> · <a href="https://www.buymeacoffee.com/infinition" data-t="legal.coffee">Support this work</a></p>
+  <p>A fork of <a href="https://github.com/infinition/capybara">infinition/capybara</a>,
+  adding full-speed emulation, a threaded interface, corrected scene names and
+  three settings. The coffee goes to the original author.</p>
+  <p><a href="https://github.com/knuckleslee/capybara">GitHub</a> · <a href="https://www.buymeacoffee.com/infinition" data-t="legal.coffee">Support this work</a></p>
 </footer>
 
 </div>
@@ -358,7 +361,7 @@ footer p{max-width:78ch;margin:0 0 12px}
      celui de la page des publications, qui marche toujours. */
   var liens = document.querySelectorAll('.get[data-asset]');
   if (liens.length && window.fetch) {
-    fetch('https://api.github.com/repos/infinition/capybara/releases/latest', {
+    fetch('https://api.github.com/repos/knuckleslee/capybara/releases/latest', {
       headers: { 'Accept': 'application/vnd.github+json' }
     }).then(function(r){ return r.ok ? r.json() : null; }).then(function(pub){
       if (!pub || !pub.assets) { return; }

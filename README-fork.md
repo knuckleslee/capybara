@@ -54,17 +54,30 @@ accelerates, which is what makes a dial feel like a dial.
 
 In the right-click menu, all off by default.
 
-**Keep the console awake.** The firmware sleeps after a few idle minutes and the
-screen goes dark. This clears its idle counter so it never decides to sleep —
-nothing is forced, no scene is short-circuited, and there is no visible wake.
+**Keep the console awake.** The firmware counts idle time in a half-word and
+compares it against a threshold; when the count wins it sets a bit that makes
+the scene machine switch to the shutdown scene, and the screen goes dark. This
+clears the count once a second, so it stays an order of magnitude below the
+threshold and the firmware never decides it has been idle. Nothing is forced and
+no scene is short-circuited: it is what a button press does, without the press.
 
-The counter's address depends on the firmware edition. The default suits the
-water edition; for another, `inactivite_probe` finds it and the address is given
-without recompiling:
+The address for the water edition, `0x18001BFE`, is built in. Another edition
+may count elsewhere, and `inactivite_probe` finds it — look for a half-word that
+rises about twenty times a second while idle and returns to zero on a press:
 
 ```
 CAPYBARA_COMPTEUR_INACTIVITE=0x18001bfe:2
 ```
+
+`off` switches the mechanism off. A variable set to nothing is treated as unset,
+so a stale one left behind in a shell cannot quietly drop the protection.
+`CAPYBARA_HORODATAGE_ACTIVITE` and `CAPYBARA_DRAPEAU_ACTIVITE` cover firmware
+that records a timestamp or a permission bit instead of counting; both are unset
+by default.
+
+The same rule applies to `CAPYBARA_SANS_REPOS` and `CAPYBARA_UN_SEUL_FIL`: they
+ask for the old behaviour when set to something, and are ignored when set to
+nothing, `0`, `off` or `no`.
 
 **Pause the console when closed.** Saves carry a timestamp and the gap is added
 to the seconds counter on reopening, so a Tamagotchi left alone ages, as on the
@@ -75,7 +88,20 @@ locked point survives pruning and the twelve-hour maximum age until deleted by
 hand, and does not count towards interval spacing — otherwise locking one would
 delete its neighbour.
 
-## Three new probes
+## A fixed scene table
+
+Upstream reads the firmware's scene names by their position in the table, which
+is one short on the water edition: its first descriptor carries a broken name
+pointer, so the search starts at the second and every name shifts by one. Scene
+29 showed as `HOME_SPACE` where the firmware calls it `HOME`, scene 117 as
+`TAMASPACE_ADDITIONAL` where it is `TAMASPACE_DOWNLOAD`, and so on to the end.
+
+The number is written in the descriptor and is now read from there. The field is
+located the same way `table_scenes_probe` locates it, so the probe and the
+interface can no longer disagree. The full table, 127 entries with their four
+handlers, is in `scenes.md`.
+
+## Six new probes
 
 In the style of the fifty-four already present:
 
@@ -83,10 +109,18 @@ In the style of the fifty-four already present:
 |---|---|
 | `repos_probe` | throughput with and without the fast-forward, and the share of time skipped |
 | `boucle_probe` | the hottest short loops, disassembled, with what changes between iterations |
-| `inactivite_probe` | finds the idle counter by its signature: rises while idle, falls on a press |
+| `inactivite_probe` | finds the idle count by its signature: rises while idle, returns to zero on a press |
+| `valeur_probe` | watches one place in memory for a whole run and reports every change with the instruction, the registers and the call chain |
+| `trace_probe` | records the last sixty thousand instructions before a shutdown |
+| `extinction_probe` | follows the calls to a given address and disassembles around them on the spot |
 
-`inactivite_probe` is the tool for porting the no-sleep setting to another
-firmware edition.
+`valeur_probe` is the one to reach for when something in RAM changes and the
+question is who changed it; it is what found the idle count.
+
+The window that maps flash at `0x1xxxxxxx` is programmable, so a listing taken by
+a separate tool at another moment shows different instructions from the ones that
+ran. These probes disassemble from inside the running machine, which is the only
+reading that can be trusted; `desassembler` is reliable for PRAM only.
 
 ## Notes
 
@@ -94,9 +128,9 @@ firmware edition.
 in English; upstream's are in French.
 
 The reasoning behind each change sits in the comments next to it, including the
-uncertainties. The main one: the idle-counter address `0x18001BFE` comes from a
-measured signature and from five idle minutes without sleeping, not from
-disassembly showing the firmware reading it.
+uncertainties. The idle count at `0x18001BFE` is no longer one of them: the
+comparison against its threshold is at `0x00003238`, and the bit it sets is read
+by the scene machine at `0x00001F1C`. Both were read from the running machine.
 
 ## Licence
 
