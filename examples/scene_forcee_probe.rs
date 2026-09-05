@@ -3,9 +3,12 @@
 //! Usage : cargo run --release --example scene_forcee_probe --
 //!             <dump.bin> <cle hex> <etat.tamastate> <scene> [secondes]
 //!
-//! Le numero de scene est le rang dans la table, celui que `table_scenes_probe`
-//! rend. Attention : les numeros consignes avant le 29 aout 2026 venaient du
-//! champ `+0x10` du descripteur et valent un de trop.
+//! Le numero de scene est celui que porte le descripteur, et que
+//! `table_scenes_probe` rend. Attention : les numeros consignes avant le
+//! 29 aout 2026 venaient du champ `+0x10` du descripteur et valent un de trop ;
+//! ceux releves ensuite, tant que l'interface deduisait le numero du rang de la
+//! premiere entree nommee, valent un de moins sur les editions dont le
+//! descripteur zero n'a pas de nom lisible — l'edition eau en fait partie.
 //!
 //! Poser le numero voulu en `0x18001BF6` ne declenche rien, c'est mesure. La
 //! machine a scenes marche autrement. Elle garde son etat dans les trois bits
