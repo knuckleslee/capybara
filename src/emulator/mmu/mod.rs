@@ -334,6 +334,20 @@ pub struct MemoryBus {
     /// vast majority — escaped recognition, `ready`'s PUSH being enough to
     /// disqualify each iteration.
     pub plancher_pile: u32,
+    /// Bytes of RAM to present to the core with some bits forced, given as
+    /// address, bits to set and bits to clear.
+    ///
+    /// Writing such a byte from outside once a second is a race the firmware
+    /// wins: it sets its flag and reads it back a few instructions later, long
+    /// before the next refresh. Forcing the value as it is read settles the
+    /// question instead of competing with it.
+    ///
+    /// Only single-byte reads are masked. Every flag this exists for is read
+    /// with `LDRB`, and the half-word and word paths are the two hottest
+    /// functions in the emulator: a test on each of them is paid on every
+    /// access the firmware makes, for a list that is empty unless someone has
+    /// asked for a flag to be held.
+    pub masques_lecture: Vec<(u32, u8, u8)>,
     pub flash: SpiFlash,
     pub pram: Pram,
     pub sram: InternalSram,
@@ -347,6 +361,7 @@ impl Default for MemoryBus {
             current_pc: 0,
             a_ecrit: false,
             plancher_pile: 0,
+            masques_lecture: Vec::new(),
             flash: SpiFlash::default(),
             pram: Pram::default(),
             sram: InternalSram::default(),
@@ -361,7 +376,11 @@ impl MemoryBus {
         // Memoire vive et PRAM d'abord : ce sont les deux zones que le code lit
         // sans arret, et aucune des deux ne peut tomber dans un alias bit-band.
         if (map::SRAM_BASE..=map::SRAM_END).contains(&addr) {
-            return self.sram.read_u8((addr - map::SRAM_BASE) as usize);
+            let v = self.sram.read_u8((addr - map::SRAM_BASE) as usize);
+            if self.masques_lecture.is_empty() {
+                return v;
+            }
+            return self.masquer(addr, v);
         }
         if addr <= map::PRAM_END {
             return self.pram.read_u8(addr as usize);
@@ -484,6 +503,21 @@ impl MemoryBus {
             u16::from_le_bytes([quatre[0], quatre[1]]),
             u16::from_le_bytes([quatre[2], quatre[3]]),
         ))
+    }
+
+    /// Applies the read masks to a byte just fetched from RAM.
+    ///
+    /// The list is almost always empty, and never longer than a handful, so a
+    /// linear walk costs less than any structure that would index it.
+    #[inline(always)]
+    fn masquer(&self, addr: u32, octet: u8) -> u8 {
+        let mut v = octet;
+        for (a, poser, effacer) in &self.masques_lecture {
+            if *a == addr {
+                v = (v | poser) & !effacer;
+            }
+        }
+        v
     }
 
     /// Sets the write flag, except for dead memory below the stack floor.
