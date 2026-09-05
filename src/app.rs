@@ -365,6 +365,14 @@ pub struct TamagotchiApp {
     vitrine: crate::fil::Vitrine,
     /// Permission to split the threads. `CAPYBARA_UN_SEUL_FIL` withdraws it.
     fil_permis: bool,
+    /// The last changes of state of the worker thread, with their time.
+    ///
+    /// The diagnostic panel lives in inspection mode, which fetches the machine
+    /// back: by the time one reads the state of the thread, it is always
+    /// stopped for that reason and never for the one being looked for. The
+    /// history keeps the earlier changes, which saves having to catch the
+    /// interface in the act.
+    bascules_du_fil: std::collections::VecDeque<(std::time::Instant, &'static str)>,
     /// True when the right-click menu was drawn on the previous frame.
     ///
     /// Its commands touch the machine, so it is fetched back as soon as the
@@ -388,30 +396,123 @@ impl TamagotchiApp {
             )
             .to_string();
         let mut machine = Box::new(Machine::new());
-        // The firmware's idle counter, the one that decides on sleeping. Found
-        // by `inactivite_probe`: it rises by twenty per second while idle and
-        // falls to zero on the slightest press, and it sits immediately after
-        // the scene-machine fields, which settles the identification.
+        // What the emulator refreshes to keep the firmware from concluding that
+        // nothing has happened, when the console is asked to stay awake.
         //
-        // The value suits the water edition. Another edition may keep it
-        // elsewhere: the environment variable then replaces the list, with no
-        // recompiling. Several addresses are accepted, comma-separated, each
-        // optionally followed by its width in bytes.
+        // The firmware counts idle time in the half-word at 0x18001BFE and
+        // compares it against the threshold at 0x18001C02. When the count wins,
+        // 0x00003260 sets bit 6 of 0x18001BFA, and on its next pass the scene
+        // machine reads that bit at 0x00001F1C, switches to the shutdown scene
+        // and winds the console down. Clearing the count once a second keeps it
+        // an order of magnitude below the threshold, and nothing else is
+        // touched: it is what a button press does, without the press.
         //
-        //   CAPYBARA_COMPTEUR_INACTIVITE=0x18001bfe:2,0x1800ece4:2
-        const COMPTEUR_PAR_DEFAUT: &str = "0x18001bfe:2";
-        machine.compteur_inactivite = std::env::var("CAPYBARA_COMPTEUR_INACTIVITE")
-            .unwrap_or_else(|_| COMPTEUR_PAR_DEFAUT.to_string())
+        // The address is the one this edition uses. Another edition may count
+        // elsewhere, hence the variables below; `inactivite_probe` finds the
+        // candidates and the count is the one that rises about twenty times a
+        // second and returns to zero on a press.
+        const COMPTEURS_PAR_DEFAUT: &str = "0x18001bfe:2";
+        //
+        // Idleness can be written two ways, and both are supported:
+        //
+        //   CAPYBARA_COMPTEUR_INACTIVITE   counters, cleared to zero
+        //   CAPYBARA_HORODATAGE_ACTIVITE   timestamps, set to the current second
+        //
+        // Either replaces the default entirely, and `off` switches the mechanism
+        // off; a variable set to nothing is treated as unset. Each takes a
+        // comma-separated list, an address optionally followed by a colon and a
+        // width in bytes, two by default:
+        //
+        //   CAPYBARA_COMPTEUR_INACTIVITE=0x18001bfe:2,0x1800ece4:4
+        //
+        // `0x18000ba0` names an address; `*0x18014038+20` names an offset into
+        // whatever the pointer there holds, which is how the firmware keeps the
+        // structure that governs the shutdown.
+        fn lire_le_lieu(texte: &str) -> Option<crate::emulator::Lieu> {
+            let texte = texte.trim();
+            let hexa = |v: &str| u32::from_str_radix(v.trim().trim_start_matches("0x"), 16).ok();
+            if let Some(reste) = texte.strip_prefix('*') {
+                let (p, d) = reste.split_once('+').unwrap_or((reste, "0"));
+                return Some(crate::emulator::Lieu::Indirect {
+                    pointeur: hexa(p)?,
+                    decalage: d.trim().parse().ok().or_else(|| hexa(d))?,
+                });
+            }
+            Some(crate::emulator::Lieu::Fixe(hexa(texte)?))
+        }
+
+        // A variable set to nothing means nothing: it is what a shell leaves
+        // behind when someone clears one during a session, and reading it as
+        // "switch the mechanism off" turned a stale variable into a silent loss
+        // of the protection, with the console falling asleep again and nothing
+        // in the setting to say why. `off` says it out loud, and is recognised
+        // here as it is by the on-or-off switches.
+        let reglage = |nom: &str, defaut: &str| -> String {
+            match std::env::var(nom) {
+                Ok(v) if !v.trim().is_empty() => {
+                    if crate::emulator::cpu::interrupteur(nom) {
+                        v
+                    } else {
+                        String::new()
+                    }
+                }
+                _ => defaut.to_string(),
+            }
+        };
+
+        let lire_adresses = |nom: &str, defaut: &str| -> Vec<(u32, u8)> {
+            reglage(nom, defaut)
+                .split(',')
+                .filter_map(|entree| {
+                    let entree = entree.trim();
+                    if entree.is_empty() {
+                        return None;
+                    }
+                    let (a, l) = entree.split_once(':').unwrap_or((entree, "2"));
+                    let adresse = u32::from_str_radix(a.trim().trim_start_matches("0x"), 16).ok()?;
+                    let largeur: u8 = l.trim().parse().ok()?;
+                    Some((adresse, largeur))
+                })
+                .collect()
+        };
+        machine.compteur_inactivite =
+            lire_adresses("CAPYBARA_COMPTEUR_INACTIVITE", COMPTEURS_PAR_DEFAUT);
+        machine.horodatage_activite = lire_adresses("CAPYBARA_HORODATAGE_ACTIVITE", "");
+        // Flag bits to hold while the console is asked to stay awake, written
+        // as place, width in bytes, bits to set and bits to clear:
+        //
+        //   CAPYBARA_DRAPEAU_ACTIVITE=place:width:set:clear
+        //
+        // A place is an address, or a pointer and an offset when the firmware
+        // keeps the structure somewhere that moves:
+        //
+        //   0x18000ba0              the byte at that address
+        //   *0x18014038+20          twenty bytes into whatever 0x18014038 holds
+        //
+        // Nothing is held by default: clearing the idle count above prevents
+        // the shutdown at its source, and these gates are what the firmware
+        // reads once it has already decided. They are kept for an edition whose
+        // count has not been found, where holding a gate delays the shutdown
+        // even though it cannot prevent it.
+        //
+        // Off by default. The chain was read from one dump of one edition, and
+        // holding a bit the firmware set on purpose is not something to do
+        // behind the user's back.
+        machine.drapeau_activite = reglage("CAPYBARA_DRAPEAU_ACTIVITE", "")
             .split(',')
             .filter_map(|entree| {
-                let entree = entree.trim();
-                if entree.is_empty() {
-                    return None;
-                }
-                let (a, l) = entree.split_once(':').unwrap_or((entree, "2"));
-                let adresse = u32::from_str_radix(a.trim().trim_start_matches("0x"), 16).ok()?;
-                let largeur: u8 = l.trim().parse().ok()?;
-                Some((adresse, largeur))
+                let mut champs = entree.trim().split(':');
+                let lieu = lire_le_lieu(champs.next()?)?;
+                let largeur: u8 = champs.next().unwrap_or("1").trim().parse().ok()?;
+                let hexa = |v: Option<&str>, defaut: u32| -> u32 {
+                    v.and_then(|x| {
+                        u32::from_str_radix(x.trim().trim_start_matches("0x"), 16).ok()
+                    })
+                    .unwrap_or(defaut)
+                };
+                let poser = hexa(champs.next(), 0);
+                let effacer = hexa(champs.next(), 0);
+                Some((lieu, largeur, poser, effacer))
             })
             .collect();
         // One millisecond of console time per `run_frame` call. That is the
@@ -516,8 +617,9 @@ impl TamagotchiApp {
             tray: None,
             fil: None,
             vitrine: crate::fil::Vitrine::default(),
-            fil_permis: std::env::var_os("CAPYBARA_UN_SEUL_FIL").is_none(),
+            fil_permis: !crate::emulator::cpu::interrupteur("CAPYBARA_UN_SEUL_FIL"),
             menu_ouvert: false,
+            bascules_du_fil: std::collections::VecDeque::new(),
             rechange: Some(Self::machine_vide()),
         };
         // La console reprend ou elle en etait, comme un vrai boitier qu'on
@@ -850,6 +952,49 @@ impl TamagotchiApp {
     /// assez pour que le firmware voie l'appui, et assez court pour qu'il ne le
     /// prenne pas pour un appui long.
     const IMPULSION: u64 = 10_000_000;
+
+    /// State of the worker thread, or the reason it cannot run.
+    ///
+    /// Without this phrase a halving of the speed is indistinguishable from a
+    /// firmware doing more work: the throughput alone does not say which of the
+    /// two paths is active.
+    fn raison_du_fil(&self) -> &'static str {
+        if !self.fil_permis {
+            "single thread (CAPYBARA_UN_SEUL_FIL)"
+        } else if self.fil.is_some() {
+            "worker running"
+        } else if self.mode != Mode::Jeu {
+            "single thread (inspection mode)"
+        } else if self.menu_ouvert {
+            "single thread (menu open)"
+        } else if self.saisie_sauvegarde.is_some() || self.suppression_demandee.is_some() {
+            "single thread (text field open)"
+        } else if self.uart_bridge.is_connected {
+            "single thread (serial link)"
+        } else if self.port_web.is_some() {
+            "single thread (local server)"
+        } else if self.vitesse <= 0.0 {
+            "single thread (paused)"
+        } else if self.rechange.is_none() {
+            "single thread (spare machine lost)"
+        } else {
+            "single thread (reason unknown)"
+        }
+    }
+
+    /// Records a change of state of the thread, if there is one.
+    fn suivre_le_fil(&mut self) {
+        let raison = self.raison_du_fil();
+        if self.bascules_du_fil.back().is_some_and(|(_, r)| *r == raison) {
+            return;
+        }
+        self.bascules_du_fil
+            .push_back((std::time::Instant::now(), raison));
+        // Six is enough: beyond that one goes back further than what is sought.
+        while self.bascules_du_fil.len() > 6 {
+            self.bascules_du_fil.pop_front();
+        }
+    }
 
     /// Hands the machine to the worker thread, and reads its mirror.
     ///
@@ -1273,6 +1418,9 @@ impl TamagotchiApp {
              vitesse       demandee {}   atteinte {:.2} fois le temps reel\n\
              cout interface {:.1} ms par image\n\
              attente       {:.1}% du temps de console saute, {} avances\n\
+             fil           {}\n\
+             fil, before   {}\n\
+             activite      {}\n\
              moteur        {}\n\
              PC            {:#010x}   mode {}   PRIMASK {}\n\
              trames ecran  {}   instantanes {}\n\
@@ -1307,6 +1455,74 @@ impl TamagotchiApp {
                 }
             },
             self.machine.cpu.sauts,
+            self.raison_du_fil(),
+            {
+                // The history of the changes. Opening the panel ends the worker
+                // thread, so the line above always reads "inspection mode": it
+                // cannot report what happened before one came to look. This one
+                // can.
+                let maintenant = std::time::Instant::now();
+                let mut sortie = String::new();
+                for (quand, raison) in &self.bascules_du_fil {
+                    if !sortie.is_empty() {
+                        sortie.push_str(" | ");
+                    }
+                    sortie.push_str(&format!(
+                        "{:.0} s ago: {}",
+                        maintenant.duration_since(*quand).as_secs_f32(),
+                        raison
+                    ));
+                }
+                if sortie.is_empty() {
+                    sortie.push_str("(no change)");
+                }
+                sortie
+            },
+            {
+                // What the watched addresses actually hold, and whether they
+                // are being watched at all. A setting that does nothing looks
+                // exactly like an address that is wrong, and an address listed
+                // while the menu entry is off looks exactly like one that is
+                // working: all three call for different next steps, so the
+                // state is spelt out rather than left to be inferred.
+                let mut sortie = String::new();
+                if !self.machine.veille_interdite {
+                    sortie.push_str("veille permise, rien n'est rafraichi ; ");
+                }
+                let lire = |m: &Machine, adresse: u32, largeur: u8| -> u32 {
+                    let o = (adresse.wrapping_sub(0x1800_0000)) as usize;
+                    let n = (largeur as usize).min(4);
+                    let d = &m.bus.sram.data;
+                    if o + n > d.len() {
+                        return 0;
+                    }
+                    let mut octets = [0u8; 4];
+                    octets[..n].copy_from_slice(&d[o..o + n]);
+                    u32::from_le_bytes(octets)
+                };
+                for (a, l) in &self.machine.compteur_inactivite {
+                    sortie.push_str(&format!("compteur {a:#010x}={:#x}  ", lire(&self.machine, *a, *l)));
+                }
+                for (a, l) in &self.machine.horodatage_activite {
+                    sortie.push_str(&format!("horodatage {a:#010x}={:#x}  ", lire(&self.machine, *a, *l)));
+                }
+                for (lieu, l, poser, effacer) in &self.machine.drapeau_activite {
+                    match self.machine.resoudre_lieu(lieu) {
+                        Some(a) => sortie.push_str(&format!(
+                            "drapeau {a:#010x}={:#x} pose {poser:#x} efface {effacer:#x}  ",
+                            lire(&self.machine, a, *l)
+                        )),
+                        None => sortie.push_str(&format!("drapeau {lieu:?} non resolu  ")),
+                    }
+                }
+                if self.machine.compteur_inactivite.is_empty()
+                    && self.machine.horodatage_activite.is_empty()
+                    && self.machine.drapeau_activite.is_empty()
+                {
+                    sortie.push_str("aucune adresse surveillee");
+                }
+                sortie
+            },
             self.moteur,
             self.machine.cpu.regs.pc,
             mode,
@@ -3224,10 +3440,13 @@ impl TamagotchiApp {
                         };
                         // The console's own sleep. The tooltip says by which
                         // means it is prevented, because there are two and they
-                        // do not give the same result: the good one requires
-                        // knowing the firmware's idle counter, the other merely
-                        // catches the console once it has fallen asleep.
-                        let veille_par_compteur = !self.machine.compteur_inactivite.is_empty();
+                        // do not give the same result: clearing the firmware's
+                        // idle count stops the shutdown at its source, while
+                        // the fallback merely catches the console once it has
+                        // already gone.
+                        let veille_par_compteur = !self.machine.compteur_inactivite.is_empty()
+                            || !self.machine.horodatage_activite.is_empty()
+                            || !self.machine.drapeau_activite.is_empty();
                         if ui
                             .button(if self.machine.veille_interdite {
                                 self.i18n.choisir(
@@ -3247,13 +3466,13 @@ impl TamagotchiApp {
                                 )
                             } else if veille_par_compteur {
                                 self.i18n.choisir(
-                                    "Actif. Le compte d'inactivite du firmware est remis a zero chaque seconde : la console ne decide jamais de s'endormir, et rien n'est interrompu.",
-                                    "On. The firmware's idle counter is cleared every second, so the console never decides to sleep and nothing is interrupted.",
+                                    "Actif. Le compte d'inactivite du firmware est remis a zero chaque seconde, si bien qu'il n'atteint jamais son seuil et que la console ne decide pas de s'eteindre. Si elle s'eteint quand meme, l'adresse ne convient pas a cette edition : inactivite_probe en cherche d'autres.",
+                                    "On. The firmware's idle count is cleared every second, so it never reaches its threshold and the console does not decide to shut down. If it still shuts down, the address does not suit this edition: inactivite_probe looks for others.",
                                 )
                             } else {
                                 self.i18n.choisir(
-                                    "Actif, mais sans l'adresse du compte d'inactivite : la console s'endort puis est rattrapee, ce qui peut se voir. Donner CAPYBARA_COMPTEUR_INACTIVITE, trouve par inactivite_probe, pour l'empecher vraiment.",
-                                    "On, but the idle counter address is unknown: the console falls asleep and is pulled back, which may show. Set CAPYBARA_COMPTEUR_INACTIVITE, found by inactivite_probe, to prevent it properly.",
+                                    "Actif, mais sans rien a rafraichir : la console s'endort puis est rattrapee, ce qui ne fait que retarder et peut se voir. Chercher le compte d'inactivite avec inactivite_probe, puis le donner par CAPYBARA_COMPTEUR_INACTIVITE.",
+                                    "On, but with nothing to refresh: the console falls asleep and is pulled back, which only delays it and may show. Look for the idle count with inactivite_probe, then give it in CAPYBARA_COMPTEUR_INACTIVITE.",
                                 )
                             })
                             .clicked()
@@ -3336,7 +3555,10 @@ impl TamagotchiApp {
                                     "The console may fall asleep, like the real one.",
                                 )
                                 .to_string()
-                        } else if self.machine.compteur_inactivite.is_empty() {
+                        } else if self.machine.compteur_inactivite.is_empty()
+                            && self.machine.horodatage_activite.is_empty()
+                            && self.machine.drapeau_activite.is_empty()
+                        {
                             self.i18n
                                 .choisir(
                                     "La console sera rattrapee apres s'etre endormie. Pour l'empecher de s'endormir, donner CAPYBARA_COMPTEUR_INACTIVITE.",
@@ -3346,8 +3568,8 @@ impl TamagotchiApp {
                         } else {
                             self.i18n
                                 .choisir(
-                                    "La console ne s'endormira pas : son compte d'inactivite est remis a zero.",
-                                    "The console will not fall asleep: its idle counter is being cleared.",
+                                    "La console ne s'endormira pas : la molette bouge d'elle meme de temps en temps.",
+                                    "The console will not fall asleep: the wheel moves by itself now and then.",
                                 )
                                 .to_string()
                         },
@@ -3756,6 +3978,15 @@ impl eframe::App for TamagotchiApp {
             self.maintenir(broche);
         }
 
+        // A live serial link forbids the fast-forward. Skipping delays when the
+        // firmware notices an incoming byte by up to eighty-five microseconds,
+        // which nothing on the console minds — but the transfer protocol at the
+        // other end of the wire counts its timeouts in real milliseconds, and a
+        // retry storm ending in a cancel is what that delay looks like from
+        // there.
+        self.machine.cpu.repos_actif =
+            self.machine.cpu.repos_permis && !self.uart_bridge.is_connected;
+
         // Choosing the path. The worker thread only runs when nothing here
         // needs the machine itself: game mode, no menu open, no text field, no
         // serial link, no local server. Each of those situations reads or
@@ -3783,6 +4014,7 @@ impl eframe::App for TamagotchiApp {
         } else {
             self.reprendre_la_machine();
         }
+        self.suivre_le_fil();
 
         self.appliquer_entrees();
         // Les octets deja arrives sont remis au controleur avant sa tranche

@@ -13,6 +13,23 @@ pub use thumb32::Thumb32;
 use crate::emulator::mmu::MemoryBus;
 use crate::emulator::peripherals::Peripherals;
 
+/// Whether an on-or-off variable is really asking for the switch.
+///
+/// Presence alone is not enough. A shell that has had a variable cleared during
+/// a session leaves it present and empty, and treating that as a request turns a
+/// forgotten variable into a silent change of behaviour. `0`, `off` and `no` are
+/// accepted as refusals for the same reason.
+pub fn interrupteur(nom: &str) -> bool {
+    match std::env::var(nom) {
+        Ok(v) => {
+            let v = v.trim();
+            !v.is_empty() && !v.eq_ignore_ascii_case("0") && !v.eq_ignore_ascii_case("off")
+                && !v.eq_ignore_ascii_case("no")
+        }
+        Err(_) => false,
+    }
+}
+
 pub struct Cpu {
     pub regs: Registers,
     pub nvic: Nvic,
@@ -75,8 +92,23 @@ pub struct Cpu {
     /// Idle recognition is conservative but it remains a heuristic: if a loop
     /// polled a register whose read has a side effect, skipping it would change
     /// behaviour. Setting `CAPYBARA_SANS_REPOS` puts the core back in its old
-    /// mode without recompiling, which settles any doubt in two runs.
+    /// mode without recompiling, which settles any doubt in two runs. Setting it
+    /// to nothing does not count as setting it: that is what a shell leaves
+    /// behind when someone clears one during a session, and reading it as a
+    /// request would switch the fast-forward off with nothing to say so.
+    ///
+    /// The interface also clears it on its own while a serial link is open. The
+    /// whole point of the fast-forward is to trade *when the firmware notices*
+    /// for speed, by up to `SAUT_MAXIMUM` cycles. That trade is free while the
+    /// console only talks to itself; it is not free when a transfer protocol on
+    /// the other end of a wire is counting the milliseconds. See
+    /// `repos_permis`.
     pub repos_actif: bool,
+    /// What `repos_actif` should return to once nothing forbids it.
+    ///
+    /// Kept apart so the interface can switch the fast-forward off and back on
+    /// without losing the user's `CAPYBARA_SANS_REPOS` choice.
+    pub repos_permis: bool,
 }
 
 impl Default for Cpu {
@@ -101,7 +133,8 @@ impl Cpu {
             boucle_recul: 0,
             cycles_sautes: 0,
             sauts: 0,
-            repos_actif: std::env::var_os("CAPYBARA_SANS_REPOS").is_none(),
+            repos_actif: !interrupteur("CAPYBARA_SANS_REPOS"),
+            repos_permis: !interrupteur("CAPYBARA_SANS_REPOS"),
         }
     }
 
